@@ -3,7 +3,7 @@
 #include <string.h>
 #include <time.h>
 
-void generatePasswords(char *letters, char *numbers, char *symbols, int passwordCount, int passwordLength) {
+void generatePasswords(char *letters, char *numbers, char *symbols, char words[][256], int wordCount, int passwordCount, int passwordLength) {
     char allChars[256];
     int index = 0;
 
@@ -30,31 +30,48 @@ void generatePasswords(char *letters, char *numbers, char *symbols, int password
 
     // Generate the passwords
     for (int i = 0; i < passwordCount; i++) {
+        int wordIndex = rand() % wordCount;
+        char *selectedWord = words[wordIndex];
+        int selectedWordLen = strlen(selectedWord);
+
+        if (passwordLength < selectedWordLen) {
+            printf("Password length is too short for the selected word. Please increase the password length.\n");
+            return;
+        }
+
         char password[passwordLength + 1];
+        int wordInserted = 0;
+
         for (int j = 0; j < passwordLength; j++) {
-            password[j] = allChars[rand() % index];
+            if (!wordInserted && j + selectedWordLen <= passwordLength) {
+                strncpy(&password[j], selectedWord, selectedWordLen);
+                j += selectedWordLen - 1;
+                wordInserted = 1;
+            } else {
+                password[j] = allChars[rand() % index];
+            }
         }
         password[passwordLength] = '\0';
-        printf("Generated password %d: %s\n", i + 1, password);
+        printf("%s\n", password);
     }
 }
 
-void readWordListFromFile(char *filePath) {
+int readWordListFromFile(char *filePath, char words[][256]) {
     FILE *file = fopen(filePath, "r");
     if (file == NULL) {
         printf("Error opening file: %s\n", filePath);
-        return;
+        return 0;
     }
 
-    char line[256];
-    printf("Word list from file:\n");
-    while (fgets(line, sizeof(line), file)) {
+    int wordCount = 0;
+    while (fgets(words[wordCount], 256, file) && wordCount < 256) {
         // Remove newline character
-        line[strcspn(line, "\n")] = '\0';
-        printf("%s\n", line);
+        words[wordCount][strcspn(words[wordCount], "\n")] = '\0';
+        wordCount++;
     }
 
     fclose(file);
+    return wordCount;
 }
 
 int main() {
@@ -63,20 +80,19 @@ int main() {
     char letters[27];   // Assuming the input is a series of letters (a-z)
     char numbers[11];   // Assuming the input is a series of numbers (0-9)
     char symbols[33];   // Assuming the input is a series of symbols
-    char words[200];    // words used in word generation
+    char words[256][256];  // Words used in word generation
+    int wordCount = 0;
     char useWordList;   // To decide whether to use the word list or not
     char filePath[256]; // Path to the word list file
 
-    printf("Enter the length of the passwords(1-32): ");
+    printf("Enter the length of the passwords (1-32): ");
     scanf("%d", &passwordLength);
 
     if (passwordLength < 1 || passwordLength > 32) {
         printf("Invalid length. Please enter a number between 1 and 32.\n");
         return 1;
     }
-    printf("Enter words to use(seperated by comma): ");
-    scanf("%d", &passwordLength);
-    
+
     printf("Enter letters (a-z): ");
     scanf("%26s", letters);  // Limiting the input to 26 characters (a-z)
 
@@ -91,33 +107,36 @@ int main() {
 
     if (useWordList == 'y' || useWordList == 'Y') {
         printf("Enter the path to the word list file: ");
-        scanf("%s", filePath);
+        scanf("%255s", filePath); // Limiting the input to 255 characters
 
-        readWordListFromFile(filePath);
-
-        printf("Enter the number of new passwords to generate: ");
-        scanf("%d", &passwordCount);
-
-        if (passwordCount > 0) {
-            printf("Generated passwords:\n");
-            generatePasswords(letters, numbers, symbols, passwordCount, passwordLength);
-        } else {
-            printf("Invalid password count.\n");
+        wordCount = readWordListFromFile(filePath, words);
+        if (wordCount == 0) {
+            printf("No words read from file. Exiting.\n");
+            return 1;
         }
     } else {
-        printf("Enter the number of passwords to generate: ");
-        scanf("%d", &passwordCount);
+        printf("Enter words to use (separated by comma): ");
+        scanf(" %255[^\n]", words[0]); // Read words separated by commas into a single string
 
-        if (passwordCount > 0) {
-            printf("Generated passwords:\n");
-            generatePasswords(letters, numbers, symbols, passwordCount, passwordLength);
-        } else {
-            printf("Invalid password count.\n");
+        // Split the words into the words array
+        char *token = strtok(words[0], ",");
+        while (token != NULL && wordCount < 256) {
+            strncpy(words[wordCount], token, 255);
+            words[wordCount][255] = '\0';  // Ensure null termination
+            wordCount++;
+            token = strtok(NULL, ",");
         }
     }
 
-    printf("Password length: %d\n", passwordLength);
-    printf("Letters: %s\n", letters);
+    printf("Enter the number of passwords to generate: ");
+    scanf("%d", &passwordCount);
+
+    if (passwordCount > 0) {
+        printf("Generated passwords:\n");
+        generatePasswords(letters, numbers, symbols, words, wordCount, passwordCount, passwordLength);
+    } else {
+        printf("Invalid password count.\n");
+    }
 
     return 0;
 }
