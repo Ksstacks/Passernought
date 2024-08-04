@@ -2,6 +2,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
+
+#define MAX_THREADS 8
+
+typedef struct {
+    char *letters;
+    char *numbers;
+    char *symbols;
+    char **words;  // Pointer to array of strings
+    int wordCount;
+    int passwordCount;
+    int passwordLength;
+    int useLeet;
+    int prefixOption;
+    int suffixOption;
+    FILE *outputFile;
+    int threadId;
+    int totalThreads;
+} ThreadData;
 
 void printProgressBar(int current, int total) {
     int barWidth = 70;
@@ -31,7 +50,7 @@ void leetSpeak(char *str) {
     }
 }
 
-int readWordListFromFile(char *filePath, char words[][256]) {
+int readWordListFromFile(char *filePath, char **words) {
     FILE *file = fopen(filePath, "r");
     if (file == NULL) {
         printf("Error opening file: %s\n", filePath);
@@ -39,9 +58,11 @@ int readWordListFromFile(char *filePath, char words[][256]) {
     }
 
     int wordCount = 0;
-    while (fgets(words[wordCount], 256, file) && wordCount < 256) {
+    char buffer[256];
+    while (fgets(buffer, 256, file) && wordCount < 256) {
         // Remove newline character
-        words[wordCount][strcspn(words[wordCount], "\n")] = '\0';
+        buffer[strcspn(buffer, "\n")] = '\0';
+        words[wordCount] = strdup(buffer); // Allocate and copy the word
         wordCount++;
     }
 
@@ -49,39 +70,44 @@ int readWordListFromFile(char *filePath, char words[][256]) {
     return wordCount;
 }
 
-void generatePasswords(char *letters, char *numbers, char *symbols, char words[][256], int wordCount, int passwordCount, int passwordLength, int useLeet, int prefixOption, int suffixOption, FILE *outputFile) {
+void *threadedPasswordGeneration(void *arg) {
+    ThreadData *data = (ThreadData *)arg;
     char allChars[256];
     int index = 0;
 
     // Add letters to the pool
-    for (int i = 0; letters[i] != '\0'; i++) {
-        allChars[index++] = letters[i];
+    for (int i = 0; data->letters[i] != '\0'; i++) {
+        allChars[index++] = data->letters[i];
     }
 
     // Add numbers to the pool
-    for (int i = 0; numbers[i] != '\0'; i++) {
-        allChars[index++] = numbers[i];
+    for (int i = 0; data->numbers[i] != '\0'; i++) {
+        allChars[index++] = data->numbers[i];
     }
 
     // Add symbols to the pool
-    for (int i = 0; symbols[i] != '\0'; i++) {
-        allChars[index++] = symbols[i];
+    for (int i = 0; data->symbols[i] != '\0'; i++) {
+        allChars[index++] = data->symbols[i];
     }
 
     // Null-terminate the string of all characters
     allChars[index] = '\0';
 
-    // Seed the random number generator
-    srand(time(NULL));
+    // Calculate range for this thread
+    int start = (data->passwordCount / data->totalThreads) * data->threadId;
+    int end = (data->passwordCount / data->totalThreads) * (data->threadId + 1);
+    if (data->threadId == data->totalThreads - 1) {
+        end = data->passwordCount;
+    }
 
     // Generate the passwords
-    for (int i = 0; i < passwordCount; i++) {
-        int wordIndex = rand() % wordCount;
+    for (int i = start; i < end; i++) {
+        int wordIndex = rand() % data->wordCount;
         char selectedWord[256];
-        strcpy(selectedWord, words[wordIndex]);
+        strcpy(selectedWord, data->words[wordIndex]);
 
         // Generate leet and non-leet variations
-        for (int j = 0; j < (useLeet ? 2 : 1); j++) {
+        for (int j = 0; j < (data->useLeet ? 2 : 1); j++) {
             if (j == 1) {
                 leetSpeak(selectedWord);
             }
@@ -90,21 +116,21 @@ void generatePasswords(char *letters, char *numbers, char *symbols, char words[]
             int prefixLen = 0;
             int suffixLen = 0;
 
-            if (prefixOption || suffixOption) {
-                if (passwordLength < selectedWordLen) {
+            if (data->prefixOption || data->suffixOption) {
+                if (data->passwordLength < selectedWordLen) {
                     printf("Password length is too short for the selected word. Please increase the password length.\n");
-                    return;
+                    return NULL;
                 }
 
-                if (prefixOption) {
-                    prefixLen = rand() % (passwordLength - selectedWordLen + 1); // Random prefix length
+                if (data->prefixOption) {
+                    prefixLen = rand() % (data->passwordLength - selectedWordLen + 1); // Random prefix length
                 }
-                if (suffixOption) {
-                    suffixLen = passwordLength - selectedWordLen - prefixLen; // Remaining length for suffix
+                if (data->suffixOption) {
+                    suffixLen = data->passwordLength - selectedWordLen - prefixLen; // Remaining length for suffix
                 }
             }
 
-            char password[passwordLength + 1];
+            char password[data->passwordLength + 1];
 
             // Generate prefix
             for (int k = 0; k < prefixLen; k++) {
@@ -115,22 +141,23 @@ void generatePasswords(char *letters, char *numbers, char *symbols, char words[]
             strncpy(&password[prefixLen], selectedWord, selectedWordLen);
 
             // Generate suffix
-            for (int k = prefixLen + selectedWordLen; k < passwordLength; k++) {
+            for (int k = prefixLen + selectedWordLen; k < data->passwordLength; k++) {
                 password[k] = allChars[rand() % index];
             }
 
-            password[passwordLength] = '\0';
+            password[data->passwordLength] = '\0';
 
             // Optionally save the password
-            if (outputFile != NULL) {
-                fprintf(outputFile, "%s\n", password);
+            if (data->outputFile != NULL) {
+                fprintf(data->outputFile, "%s\n", password);
             }
         }
 
         // Print the progress bar
-        printProgressBar(i + 1, passwordCount);
+        printProgressBar(i + 1, data->passwordCount);
     }
     printf("\n"); // Move to the next line after the progress bar completes
+    return NULL;
 }
 
 int main() {
@@ -139,7 +166,7 @@ int main() {
     char letters[27];   // Assuming the input is a series of letters (a-z)
     char numbers[11];   // Assuming the input is a series of numbers (0-9)
     char symbols[33];   // Assuming the input is a series of symbols
-    char words[256][256];  // Words used in word generation
+    char *words[256];   // Pointer to array of strings
     int wordCount = 0;
     char useWordList;   // To decide whether to use the word list or not
     char filePath[256]; // Path to the word list file
@@ -148,6 +175,7 @@ int main() {
     char outputFilePath[256]; // Path to the output file
     int prefixOption;   // Option to add prefix
     int suffixOption;   // Option to add suffix
+    int totalThreads;   // Total number of threads to use
 
     printf("Enter the length of the passwords (1-32): ");
     scanf("%d", &passwordLength);
@@ -180,13 +208,13 @@ int main() {
         }
     } else {
         printf("Enter words to use (separated by comma): ");
-        scanf(" %255[^\n]", words[0]); // Read words separated by commas into a single string
+        char inputWords[1024];
+        scanf(" %1023[^\n]", inputWords); // Read words separated by commas into a single string
 
         // Split the words into the words array
-        char *token = strtok(words[0], ",");
+        char *token = strtok(inputWords, ",");
         while (token != NULL && wordCount < 256) {
-            strncpy(words[wordCount], token, 255);
-            words[wordCount][255] = '\0';  // Ensure null termination
+            words[wordCount] = strdup(token); // Allocate and copy the word
             wordCount++;
             token = strtok(NULL, ",");
         }
@@ -218,15 +246,48 @@ int main() {
         }
     }
 
-    if (passwordCount > 0) {
-        printf("Generating passwords:\n");
-        generatePasswords(letters, numbers, symbols, words, wordCount, passwordCount, passwordLength, useLeet, prefixOption, suffixOption, outputFile);
-    } else {
-        printf("Invalid password count.\n");
+    printf("Enter the number of threads to use (1-%d): ", MAX_THREADS);
+    scanf("%d", &totalThreads);
+
+    if (totalThreads < 1 || totalThreads > MAX_THREADS) {
+        printf("Invalid number of threads. Please enter a number between 1 and %d.\n", MAX_THREADS);
+        return 1;
+    }
+
+    pthread_t threads[totalThreads];
+    ThreadData threadData[totalThreads];
+
+    // Initialize thread data and create threads
+    for (int i = 0; i < totalThreads; i++) {
+        threadData[i].letters = letters;
+        threadData[i].numbers = numbers;
+        threadData[i].symbols = symbols;
+        threadData[i].words = words;
+        threadData[i].wordCount = wordCount;
+        threadData[i].passwordCount = passwordCount;
+        threadData[i].passwordLength = passwordLength;
+        threadData[i].useLeet = useLeet;
+        threadData[i].prefixOption = prefixOption;
+        threadData[i].suffixOption = suffixOption;
+        threadData[i].outputFile = outputFile;
+        threadData[i].threadId = i;
+        threadData[i].totalThreads = totalThreads;
+
+        pthread_create(&threads[i], NULL, threadedPasswordGeneration, &threadData[i]);
+    }
+
+    // Wait for all threads to finish
+    for (int i = 0; i < totalThreads; i++) {
+        pthread_join(threads[i], NULL);
     }
 
     if (outputFile != NULL) {
         fclose(outputFile);
+    }
+
+    // Free allocated memory
+    for (int i = 0; i < wordCount; i++) {
+        free(words[i]);
     }
 
     return 0;
