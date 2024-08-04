@@ -22,6 +22,9 @@ typedef struct {
     int totalThreads;
 } ThreadData;
 
+pthread_mutex_t progressMutex = PTHREAD_MUTEX_INITIALIZER;
+int globalProgress = 0;
+
 void printProgressBar(int current, int total) {
     int barWidth = 70;
     float progress = (float)current / total;
@@ -153,10 +156,12 @@ void *threadedPasswordGeneration(void *arg) {
             }
         }
 
-        // Print the progress bar
-        printProgressBar(i + 1, data->passwordCount);
+        // Update global progress
+        pthread_mutex_lock(&progressMutex);
+        globalProgress++;
+        printProgressBar(globalProgress, data->passwordCount);
+        pthread_mutex_unlock(&progressMutex);
     }
-    printf("\n"); // Move to the next line after the progress bar completes
     return NULL;
 }
 
