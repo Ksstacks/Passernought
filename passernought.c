@@ -3,6 +3,21 @@
 #include <string.h>
 #include <time.h>
 
+void printProgressBar(int current, int total) {
+    int barWidth = 70;
+    float progress = (float)current / total;
+    int pos = barWidth * progress;
+    printf("\r[");
+    for (int i = 0; i < barWidth; i++) {
+        if (i < pos)
+            printf("#");
+        else
+            printf(" ");
+    }
+    printf("] %.2f%%", progress * 100.0);
+    fflush(stdout);
+}
+
 void leetSpeak(char *str) {
     for (int i = 0; str[i] != '\0'; i++) {
         switch (str[i]) {
@@ -14,6 +29,24 @@ void leetSpeak(char *str) {
             case 't': case 'T': str[i] = '7'; break;
         }
     }
+}
+
+int readWordListFromFile(char *filePath, char words[][256]) {
+    FILE *file = fopen(filePath, "r");
+    if (file == NULL) {
+        printf("Error opening file: %s\n", filePath);
+        return 0;
+    }
+
+    int wordCount = 0;
+    while (fgets(words[wordCount], 256, file) && wordCount < 256) {
+        // Remove newline character
+        words[wordCount][strcspn(words[wordCount], "\n")] = '\0';
+        wordCount++;
+    }
+
+    fclose(file);
+    return wordCount;
 }
 
 void generatePasswords(char *letters, char *numbers, char *symbols, char words[][256], int wordCount, int passwordCount, int passwordLength, int useLeet, int prefixOption, int suffixOption, FILE *outputFile) {
@@ -47,69 +80,57 @@ void generatePasswords(char *letters, char *numbers, char *symbols, char words[]
         char selectedWord[256];
         strcpy(selectedWord, words[wordIndex]);
 
-        if (useLeet) {
-            leetSpeak(selectedWord);
-        }
-
-        int selectedWordLen = strlen(selectedWord);
-        int prefixLen = 0;
-        int suffixLen = 0;
-
-        if (prefixOption || suffixOption) {
-            if (passwordLength < selectedWordLen) {
-                printf("Password length is too short for the selected word. Please increase the password length.\n");
-                return;
+        // Generate leet and non-leet variations
+        for (int j = 0; j < (useLeet ? 2 : 1); j++) {
+            if (j == 1) {
+                leetSpeak(selectedWord);
             }
 
-            if (prefixOption) {
-                prefixLen = rand() % (passwordLength - selectedWordLen + 1); // Random prefix length
+            int selectedWordLen = strlen(selectedWord);
+            int prefixLen = 0;
+            int suffixLen = 0;
+
+            if (prefixOption || suffixOption) {
+                if (passwordLength < selectedWordLen) {
+                    printf("Password length is too short for the selected word. Please increase the password length.\n");
+                    return;
+                }
+
+                if (prefixOption) {
+                    prefixLen = rand() % (passwordLength - selectedWordLen + 1); // Random prefix length
+                }
+                if (suffixOption) {
+                    suffixLen = passwordLength - selectedWordLen - prefixLen; // Remaining length for suffix
+                }
             }
-            if (suffixOption) {
-                suffixLen = passwordLength - selectedWordLen - prefixLen; // Remaining length for suffix
+
+            char password[passwordLength + 1];
+
+            // Generate prefix
+            for (int k = 0; k < prefixLen; k++) {
+                password[k] = allChars[rand() % index];
+            }
+
+            // Insert the word
+            strncpy(&password[prefixLen], selectedWord, selectedWordLen);
+
+            // Generate suffix
+            for (int k = prefixLen + selectedWordLen; k < passwordLength; k++) {
+                password[k] = allChars[rand() % index];
+            }
+
+            password[passwordLength] = '\0';
+
+            // Optionally save the password
+            if (outputFile != NULL) {
+                fprintf(outputFile, "%s\n", password);
             }
         }
 
-        char password[passwordLength + 1];
-
-        // Generate prefix
-        for (int j = 0; j < prefixLen; j++) {
-            password[j] = allChars[rand() % index];
-        }
-
-        // Insert the word
-        strncpy(&password[prefixLen], selectedWord, selectedWordLen);
-
-        // Generate suffix
-        for (int j = prefixLen + selectedWordLen; j < passwordLength; j++) {
-            password[j] = allChars[rand() % index];
-        }
-
-        password[passwordLength] = '\0';
-
-        // Print and optionally save the password
-        printf("%s\n", password);
-        if (outputFile != NULL) {
-            fprintf(outputFile, "%s\n", password);
-        }
+        // Print the progress bar
+        printProgressBar(i + 1, passwordCount);
     }
-}
-
-int readWordListFromFile(char *filePath, char words[][256]) {
-    FILE *file = fopen(filePath, "r");
-    if (file == NULL) {
-        printf("Error opening file: %s\n", filePath);
-        return 0;
-    }
-
-    int wordCount = 0;
-    while (fgets(words[wordCount], 256, file) && wordCount < 256) {
-        // Remove newline character
-        words[wordCount][strcspn(words[wordCount], "\n")] = '\0';
-        wordCount++;
-    }
-
-    fclose(file);
-    return wordCount;
+    printf("\n"); // Move to the next line after the progress bar completes
 }
 
 int main() {
@@ -198,7 +219,7 @@ int main() {
     }
 
     if (passwordCount > 0) {
-        printf("Generated passwords:\n");
+        printf("Generating passwords:\n");
         generatePasswords(letters, numbers, symbols, words, wordCount, passwordCount, passwordLength, useLeet, prefixOption, suffixOption, outputFile);
     } else {
         printf("Invalid password count.\n");

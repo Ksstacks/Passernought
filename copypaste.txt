@@ -1,0 +1,4 @@
+abcdefghijklmnopqrstuvwxyz
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+0987654321
+~`!@#$%^&*()-_=+}]{[\|;:'">.<,/?
