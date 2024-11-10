@@ -52,7 +52,7 @@ void leetSpeak(char *str) {
     }
 }
 
-int readWordListFromFile(char *filePath, char **words) {
+int readWordListFromFile(char *filePath, char **words, int maxWordLength) {
     FILE *file = fopen(filePath, "r");
     if (file == NULL) {
         printf("Error opening file: %s\n", filePath);
@@ -62,9 +62,12 @@ int readWordListFromFile(char *filePath, char **words) {
     int wordCount = 0;
     char buffer[256];
     while (fgets(buffer, 256, file) && wordCount < MAX_WORDS) {
-        buffer[strcspn(buffer, "\n")] = '\0';
-        words[wordCount] = strdup(buffer);
-        wordCount++;
+        buffer[strcspn(buffer, "\n")] = '\0'; // Remove newline
+
+        if (strlen(buffer) <= maxWordLength) { // Exclude words that are too long
+            words[wordCount] = strdup(buffer);
+            wordCount++;
+        }
     }
     fclose(file);
     return wordCount;
@@ -144,8 +147,11 @@ int main() {
 
     printf("Enter the path to the word list file: ");
     scanf("%255s", filePath);
-    wordCount = readWordListFromFile(filePath, words);
-    if (wordCount == 0) return 1;
+    wordCount = readWordListFromFile(filePath, words, passwordLength);
+    if (wordCount == 0) {
+        printf("No words suitable for the password length found. Exiting.\n");
+        return 1;
+    }
 
     calculateMemoryUsage(wordCount, words);
 
@@ -169,7 +175,10 @@ int main() {
         printf("Enter the path to the output file: ");
         scanf("%255s", outputFilePath);
         outputFile = fopen(outputFilePath, "w");
-        if (!outputFile) return 1;
+        if (!outputFile) {
+            printf("Error opening file: %s\n", outputFilePath);
+            return 1;
+        }
     }
 
     printf("Enter the number of threads to use (1-%d): ", MAX_THREADS);
