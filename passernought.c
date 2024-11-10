@@ -73,13 +73,10 @@ int readWordListFromFile(char *filePath, char **words, int maxWordLength) {
     return wordCount;
 }
 
-void calculateMemoryUsage(int wordCount, char **words) {
-    size_t totalSize = 0;
-    for (int i = 0; i < wordCount; i++) {
-        totalSize += (strlen(words[i]) + 1);  // String length + null terminator
-    }
-    totalSize += wordCount * sizeof(char*);  // Pointer size for each word
-    printf("Approximate memory usage for the word list: %zu bytes\n", totalSize);
+void calculateFileSize(int passwordCount, int passwordLength) {
+    size_t totalSize = passwordCount * (passwordLength + 1); // +1 for newline character
+    double totalSizeMB = totalSize / (1024.0 * 1024.0);
+    printf("Estimated file size for the password file: %.2f MB\n", totalSizeMB);
 }
 
 void *threadedPasswordGeneration(void *arg) {
@@ -153,10 +150,10 @@ int main() {
         return 1;
     }
 
-    calculateMemoryUsage(wordCount, words);
-
     printf("Enter the number of passwords to generate: ");
     scanf("%d", &passwordCount);
+
+    calculateFileSize(passwordCount, passwordLength);
 
     printf("Do you want to use leet speak? (1 for yes, 0 for no): ");
     scanf("%d", &useLeet);
