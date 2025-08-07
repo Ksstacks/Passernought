@@ -4,7 +4,7 @@
 #include <time.h>
 #include <pthread.h>
 
-#define MAX_THREADS 8
+#define MAX_THREADS 100
 #define MAX_WORDS 256
 
 typedef struct {
@@ -178,7 +178,7 @@ int main() {
         }
     }
 
-    printf("Enter the number of threads to use (1-%d): ", MAX_THREADS);
+    printf("Enter the number of threads to use (default %d): ", MAX_THREADS);
     scanf("%d", &totalThreads);
 
     pthread_t threads[totalThreads];
