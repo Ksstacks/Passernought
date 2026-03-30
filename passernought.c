@@ -118,16 +118,28 @@ void *threadedPasswordGeneration(void *arg) {
         for (int v = 0; v < versions; v++) {
             if (wordVersions[v] == NULL) continue;
 
-            int prefixLen = (data->prefixOption) ? rand() % (currentLength - strlen(wordVersions[v]) + 1) : 0;
-            int suffixLen = currentLength - strlen(wordVersions[v]) - prefixLen;
+            int wordLen = strlen(wordVersions[v]);
+            
+            // Skip if word is too long for the current password length
+            if (wordLen > currentLength) {
+                continue;
+            }
 
-            char password[currentLength + 1];
+            int prefixLen = (data->prefixOption) ? rand() % (currentLength - wordLen + 1) : 0;
+            int suffixLen = currentLength - wordLen - prefixLen;
+
+            // Allocate dynamic buffer for password
+            char *password = malloc(currentLength + 1);
+            if (!password) continue;
+
             for (int k = 0; k < prefixLen; k++) password[k] = allChars[rand() % index];
-            strncpy(&password[prefixLen], wordVersions[v], strlen(wordVersions[v]));
-            for (int k = prefixLen + strlen(wordVersions[v]); k < currentLength; k++) password[k] = allChars[rand() % index];
+            strncpy(&password[prefixLen], wordVersions[v], wordLen);
+            for (int k = prefixLen + wordLen; k < currentLength; k++) password[k] = allChars[rand() % index];
             password[currentLength] = '\0';
 
             if (data->outputFile) fprintf(data->outputFile, "%s\n", password);
+            
+            free(password);
         }
 
         pthread_mutex_lock(&progressMutex);
