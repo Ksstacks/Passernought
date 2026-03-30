@@ -14,7 +14,8 @@ typedef struct {
     char **words;
     int wordCount;
     int passwordCount;
-    int passwordLength;
+    int minLength;
+    int maxLength;
     int useLeet;
     int prefixOption;
     int suffixOption;
@@ -73,8 +74,8 @@ int readWordListFromFile(char *filePath, char **words, int maxWordLength) {
     return wordCount;
 }
 
-void calculateFileSize(int passwordCount, int passwordLength) {
-    size_t totalSize = passwordCount * (passwordLength + 1); // +1 for newline character
+void calculateFileSize(int passwordCount, int avgLength) {
+    size_t totalSize = passwordCount * (avgLength + 1) * 2; // *2 for both leeted and non-leeted
     double totalSizeMB = totalSize / (1024.0 * 1024.0);
     printf("Estimated file size for the password file: %.2f MB\n", totalSizeMB);
 }
@@ -98,19 +99,33 @@ void *threadedPasswordGeneration(void *arg) {
     for (int i = start; i < end; i++) {
         int wordIndex = rand() % data->wordCount;
         char selectedWord[256];
+        char leetedWord[256];
         strcpy(selectedWord, data->words[wordIndex]);
+        strcpy(leetedWord, selectedWord);
 
-        for (int j = 0; j < (data->useLeet ? 2 : 1); j++) {
-            if (j == 1) leetSpeak(selectedWord);
+        // Generate random password length within range
+        int currentLength = data->minLength + (rand() % (data->maxLength - data->minLength + 1));
 
-            int prefixLen = (data->prefixOption) ? rand() % (data->passwordLength - strlen(selectedWord) + 1) : 0;
-            int suffixLen = data->passwordLength - strlen(selectedWord) - prefixLen;
+        // Apply leet speak if enabled
+        if (data->useLeet) {
+            leetSpeak(leetedWord);
+        }
 
-            char password[data->passwordLength + 1];
+        // Generate passwords for both original and leeted versions
+        char *wordVersions[2] = {selectedWord, data->useLeet ? leetedWord : NULL};
+        int versions = data->useLeet ? 2 : 1;
+
+        for (int v = 0; v < versions; v++) {
+            if (wordVersions[v] == NULL) continue;
+
+            int prefixLen = (data->prefixOption) ? rand() % (currentLength - strlen(wordVersions[v]) + 1) : 0;
+            int suffixLen = currentLength - strlen(wordVersions[v]) - prefixLen;
+
+            char password[currentLength + 1];
             for (int k = 0; k < prefixLen; k++) password[k] = allChars[rand() % index];
-            strncpy(&password[prefixLen], selectedWord, strlen(selectedWord));
-            for (int k = prefixLen + strlen(selectedWord); k < data->passwordLength; k++) password[k] = allChars[rand() % index];
-            password[data->passwordLength] = '\0';
+            strncpy(&password[prefixLen], wordVersions[v], strlen(wordVersions[v]));
+            for (int k = prefixLen + strlen(wordVersions[v]); k < currentLength; k++) password[k] = allChars[rand() % index];
+            password[currentLength] = '\0';
 
             if (data->outputFile) fprintf(data->outputFile, "%s\n", password);
         }
@@ -124,14 +139,22 @@ void *threadedPasswordGeneration(void *arg) {
 }
 
 int main() {
-    int passwordLength, passwordCount, useLeet, prefixOption, suffixOption, totalThreads;
+    int minLength, maxLength, passwordCount, useLeet, prefixOption, suffixOption, totalThreads;
     char letters[27], numbers[11], symbols[33], filePath[256], outputFilePath[256];
     char *words[MAX_WORDS];
     int wordCount = 0;
     char saveToFile;
 
-    printf("Enter the length of the passwords (1-32): ");
-    scanf("%d", &passwordLength);
+    printf("Enter the minimum length of the passwords (1-32): ");
+    scanf("%d", &minLength);
+
+    printf("Enter the maximum length of the passwords (1-32): ");
+    scanf("%d", &maxLength);
+
+    if (maxLength < minLength) {
+        printf("Error: Maximum length cannot be less than minimum length.\n");
+        return 1;
+    }
 
     printf("Enter letters (a-z): ");
     scanf("%26s", letters);
@@ -144,7 +167,7 @@ int main() {
 
     printf("Enter the path to the word list file: ");
     scanf("%255s", filePath);
-    wordCount = readWordListFromFile(filePath, words, passwordLength);
+    wordCount = readWordListFromFile(filePath, words, maxLength);
     if (wordCount == 0) {
         printf("No words suitable for the password length found. Exiting.\n");
         return 1;
@@ -153,7 +176,8 @@ int main() {
     printf("Enter the number of passwords to generate: ");
     scanf("%d", &passwordCount);
 
-    calculateFileSize(passwordCount, passwordLength);
+    int avgLength = (minLength + maxLength) / 2;
+    calculateFileSize(passwordCount, avgLength);
 
     printf("Do you want to use leet speak? (1 for yes, 0 for no): ");
     scanf("%d", &useLeet);
@@ -184,7 +208,7 @@ int main() {
     pthread_t threads[totalThreads];
     ThreadData threadData[totalThreads];
     for (int i = 0; i < totalThreads; i++) {
-        threadData[i] = (ThreadData){letters, numbers, symbols, words, wordCount, passwordCount, passwordLength,
+        threadData[i] = (ThreadData){letters, numbers, symbols, words, wordCount, passwordCount, minLength, maxLength,
                                      useLeet, prefixOption, suffixOption, outputFile, i, totalThreads};
         pthread_create(&threads[i], NULL, threadedPasswordGeneration, &threadData[i]);
     }
