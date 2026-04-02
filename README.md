@@ -2,6 +2,6 @@
 
 Password geration script! Check it out!
 
-installation:
+Compilation:
 
 gcc passernought.c -o passernought
