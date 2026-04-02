@@ -74,8 +74,31 @@ int readWordListFromFile(char *filePath, char **words, int maxWordLength) {
     return wordCount;
 }
 
-void calculateFileSize(int passwordCount, int avgLength) {
-    size_t totalSize = passwordCount * (avgLength + 1) * 2; // *2 for both leeted and non-leeted
+void calculateFileSize(int passwordCount, int minLength, int maxLength,
+                       int useLeet, char **words, int wordCount) {
+    // Work out what fraction of (word, length) pairs actually produce a password.
+    // A word is skipped whenever wordLen > currentLength, so we count valid pairs
+    // across the full length range and compute the ratio.
+    int validPairs = 0;
+    int totalPairs = 0;
+    for (int w = 0; w < wordCount; w++) {
+        int wlen = (int)strlen(words[w]);
+        for (int l = minLength; l <= maxLength; l++) {
+            totalPairs++;
+            if (wlen <= l) validPairs++;
+        }
+    }
+    double validFraction = (totalPairs > 0) ? (double)validPairs / totalPairs : 1.0;
+
+    // Each written line is exactly currentLength chars + newline.
+    // Average that over the uniform length distribution.
+    double avgLength = (minLength + maxLength) / 2.0;
+
+    // Leet speak writes an extra password per iteration when enabled.
+    int leetMultiplier = useLeet ? 2 : 1;
+
+    size_t totalSize = (size_t)(passwordCount * validFraction * leetMultiplier
+                                * (avgLength + 1));
     double totalSizeMB = totalSize / (1024.0 * 1024.0);
     printf("Estimated file size for the password file: %.2f MB\n", totalSizeMB);
 }
@@ -119,26 +142,80 @@ void *threadedPasswordGeneration(void *arg) {
             if (wordVersions[v] == NULL) continue;
 
             int wordLen = strlen(wordVersions[v]);
-            
+
             // Skip if word is too long for the current password length
             if (wordLen > currentLength) {
                 continue;
             }
 
-            int prefixLen = (data->prefixOption) ? rand() % (currentLength - wordLen + 1) : 0;
-            int suffixLen = currentLength - wordLen - prefixLen;
-
             // Allocate dynamic buffer for password
             char *password = malloc(currentLength + 1);
             if (!password) continue;
 
-            for (int k = 0; k < prefixLen; k++) password[k] = allChars[rand() % index];
-            strncpy(&password[prefixLen], wordVersions[v], wordLen);
-            for (int k = prefixLen + wordLen; k < currentLength; k++) password[k] = allChars[rand() % index];
-            password[currentLength] = '\0';
+            // Check if a second word can fit in the remaining space and randomly decide to use it
+            int remainingAfterFirst = currentLength - wordLen;
+            int useSecondWord = 0;
+            int secondWordIdx = -1;
+            int secondWordLen = 0;
+
+            if (remainingAfterFirst > 0 && data->wordCount > 1 && (rand() % 2) == 0) {
+                // Pick a different word for the second slot
+                secondWordIdx = rand() % data->wordCount;
+                if (secondWordIdx == wordIndex)
+                    secondWordIdx = (secondWordIdx + 1) % data->wordCount;
+
+                char *candidate = data->words[secondWordIdx];
+                // Apply leet to second word if this is the leeted version
+                char candidateBuf[256];
+                strcpy(candidateBuf, candidate);
+                if (v == 1 && data->useLeet) leetSpeak(candidateBuf);
+
+                secondWordLen = strlen(candidateBuf);
+
+                // Only use second word if both words fit within currentLength
+                if (secondWordLen <= remainingAfterFirst) {
+                    useSecondWord = 1;
+
+                    // Randomly decide whether to put a gap between the two words
+                    int useGap = rand() % 2;
+
+                    int fillerTotal = currentLength - wordLen - secondWordLen;
+                    int prefixLen, gapLen, suffixLen;
+
+                    if (useGap) {
+                        // Distribute random filler: prefix | word1 | gap | word2 | suffix
+                        prefixLen = (data->prefixOption && fillerTotal > 0) ? rand() % (fillerTotal + 1) : 0;
+                        int leftover = fillerTotal - prefixLen;
+                        gapLen    = (leftover > 0) ? rand() % (leftover + 1) : 0;
+                        suffixLen = leftover - gapLen;
+                    } else {
+                        // No gap: prefix | word1 | word2 | suffix
+                        prefixLen = (data->prefixOption && fillerTotal > 0) ? rand() % (fillerTotal + 1) : 0;
+                        gapLen    = 0;
+                        suffixLen = fillerTotal - prefixLen;
+                    }
+
+                    int pos = 0;
+                    for (int k = 0; k < prefixLen; k++)  password[pos++] = allChars[rand() % index];
+                    strncpy(&password[pos], wordVersions[v], wordLen); pos += wordLen;
+                    for (int k = 0; k < gapLen; k++)     password[pos++] = allChars[rand() % index];
+                    strncpy(&password[pos], candidateBuf, secondWordLen); pos += secondWordLen;
+                    for (int k = 0; k < suffixLen; k++)  password[pos++] = allChars[rand() % index];
+                    password[currentLength] = '\0';
+                }
+            }
+
+            // Fall back to single-word layout if second word wasn't used
+            if (!useSecondWord) {
+                int prefixLen = (data->prefixOption) ? rand() % (currentLength - wordLen + 1) : 0;
+                for (int k = 0; k < prefixLen; k++) password[k] = allChars[rand() % index];
+                strncpy(&password[prefixLen], wordVersions[v], wordLen);
+                for (int k = prefixLen + wordLen; k < currentLength; k++) password[k] = allChars[rand() % index];
+                password[currentLength] = '\0';
+            }
 
             if (data->outputFile) fprintf(data->outputFile, "%s\n", password);
-            
+
             free(password);
         }
 
@@ -188,9 +265,6 @@ int main() {
     printf("Enter the number of passwords to generate: ");
     scanf("%d", &passwordCount);
 
-    int avgLength = (minLength + maxLength) / 2;
-    calculateFileSize(passwordCount, avgLength);
-
     printf("Do you want to use leet speak? (1 for yes, 0 for no): ");
     scanf("%d", &useLeet);
 
@@ -199,6 +273,8 @@ int main() {
 
     printf("Do you want to add a suffix? (1 for yes, 0 for no): ");
     scanf("%d", &suffixOption);
+
+    calculateFileSize(passwordCount, minLength, maxLength, useLeet, words, wordCount);
 
     printf("Do you want to save the passwords to a file? (y/n): ");
     scanf(" %c", &saveToFile);
